@@ -1,55 +1,44 @@
 import pandas as pd
-import json
-import gzip
-from pathlib import Path
+
 
 class DataIngestion:
     """
-    Static ingestion utilities for Amazon Review Reliability Analyzer.
-    Supports JSONL and JSONL.GZ files with error handling.
+    Utilities for loading raw Amazon review + meta datasets.
     """
 
     @staticmethod
-    def load_jsonl(file_path) -> pd.DataFrame:
+    def load_review_meta_pair(data_dir: str, review_file: str, meta_file: str):
         """
-        Load a single JSONL or JSONL.GZ file into a DataFrame.
-        Returns empty DataFrame if file is missing or unreadable.
+        Load raw review and meta JSONL.GZ files, normalize schema for downstream cleaning.
         """
-        file_path = Path(file_path)  # ensure Path object
+        # Load reviews
+        df_reviews = pd.read_json(f"{data_dir}/{review_file}", lines=True, compression="gzip")
 
-        if not file_path.exists():
-            return pd.DataFrame()
+        # Normalize schema
+        df_reviews = df_reviews.rename(
+            columns={
+                "rating": "user_rating",
+                "text": "review_text",
+                "images": "images_link",
+                "timestamp": "date_reviewed",
+                "verified_purchase": "verified_purchases",
+                "helpful_vote": "helpful_votes"
+            }
+        )
 
-        records = []
-        try:
-            # Choose correct opener based on extension
-            if file_path.suffix == ".gz":
-                opener = lambda p: gzip.open(p, "rt", encoding="utf-8")
-            else:
-                opener = lambda p: open(p, "r", encoding="utf-8")
+        # Load meta
+        df_meta = pd.read_json(f"{data_dir}/{meta_file}", lines=True, compression="gzip")
 
-            with opener(file_path) as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            records.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            # Skip malformed JSON lines
-                            continue
-        except Exception:
-            return pd.DataFrame()
+        # Normalize meta schema
+        df_meta = df_meta.rename(
+            columns={
+                "title": "product_title",
+                "features": "product_features",
+                "images": "product_images",
+                "store": "product_store",
+                "price": "product_price",
+                "rating_number": "total_ratings"
+            }
+        )
 
-        return pd.DataFrame(records) if records else pd.DataFrame()
-
-
-    @staticmethod
-    def load_review_meta_pair(data_dir: str, review_file: str, meta_file: str) -> tuple:
-        """
-        Load review and meta files separately.
-        Returns (review_df, meta_df).
-        """
-        data_dir = Path(data_dir)
-        review_df = DataIngestion.load_jsonl(data_dir / review_file)
-        meta_df = DataIngestion.load_jsonl(data_dir / meta_file)
-
-        return review_df, meta_df
+        return df_reviews, df_meta
