@@ -72,6 +72,20 @@ class MetaCleaning:
     """
     Cleaning utilities for meta dataset (normalized schema).
     """
+    @staticmethod
+    def clean_product_titles(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Standardize product titles for stability across pipeline and dashboards.
+        - Fill missing values
+        - Strip whitespace
+        - Truncate overly long titles
+        """
+        df["product_title"] = df["product_title"].fillna("Unknown Product")
+        df["product_title"] = df["product_title"].astype(str).str.strip()
+        df["product_title"] = df["product_title"].apply(
+            lambda x: x if len(x) <= 50 else x[:47] + "..."
+        )
+        return df
 
     @staticmethod
     def drop_duplicates(df: pd.DataFrame, subset: list = None) -> pd.DataFrame:
