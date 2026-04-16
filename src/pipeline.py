@@ -23,6 +23,8 @@ class CleaningPipeline:
 
         # --- Meta cleaning ---
         df_meta = MetaCleaning.drop_duplicates(df_meta, subset=["parent_asin"])
+        # Apply product title cleaning
+        df_meta= MetaCleaning.clean_product_titles(df_meta)
         df_meta = MetaCleaning.fill_na(df_meta, fill_map={"product_images": [], "product_features": []})
         df_meta = MetaCleaning.ensure_schema(df_meta)
 
