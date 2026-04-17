@@ -2,7 +2,7 @@ import pandas as pd
 import time
 
 from ingestion.load_data import DataIngestion
-from cleaning.clean_data import ReviewCleaning, MetaCleaning, DataIntegrationUtils
+from cleaning.clean_data import ReviewCleaning, MetaCleaning, DataIntegrationUtils, RefinementPipeline
 from reliability.features.quantitative import QuantFeatures
 from reliability.scoring import add_confidence_score
 
@@ -73,9 +73,10 @@ if __name__ == "__main__":
     print(f"⏱ Data loading finished in {time.time() - load_start:.2f} seconds")
 
     df_processed = CleaningPipeline.run(df_reviews_raw, df_meta_raw)
+    df_refined = RefinementPipeline.run(df_processed)
 
     processed_path = "data/processed/all_beauty_cleaned.parquet"
-    df_processed.to_parquet(processed_path, index=False)
+    df_refined.to_parquet(processed_path, index=False)
     print(f"✅ Saved processed parquet to {processed_path}")
 
     # --- Stage 2: Feature engineering + scoring ---

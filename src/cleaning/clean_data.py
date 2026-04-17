@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 class ReviewCleaning:
     """
@@ -52,9 +53,6 @@ class ReviewCleaning:
 
     @staticmethod
     def aggregate_reviews(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Aggregate reviews by parent_asin with normalized column names.
-        """
         df["user_rating"] = pd.to_numeric(df.get("user_rating"), errors="coerce")
         agg_df = df.groupby("parent_asin").agg(
             user_id=("user_id", list),
@@ -62,7 +60,7 @@ class ReviewCleaning:
             review_text=("review_text", list),
             images_link=("images_link", list),
             date_reviewed=("date_reviewed", list),
-            helpful_votes=("helpful_votes", list),
+            helpful_votes=("helpful_votes", sum),
             verified_purchases=("verified_purchases", list),
         ).reset_index()
         return agg_df
@@ -72,14 +70,9 @@ class MetaCleaning:
     """
     Cleaning utilities for meta dataset (normalized schema).
     """
+
     @staticmethod
     def clean_product_titles(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Standardize product titles for stability across pipeline and dashboards.
-        - Fill missing values
-        - Strip whitespace
-        - Truncate overly long titles
-        """
         df["product_title"] = df["product_title"].fillna("Unknown Product")
         df["product_title"] = df["product_title"].astype(str).str.strip()
         df["product_title"] = df["product_title"].apply(
@@ -138,6 +131,56 @@ class MetaCleaning:
             total_ratings=("total_ratings", "sum"),
         ).reset_index()
         return agg_df
+
+
+class RefinementPipeline:
+    """
+    Extra refinement layer before saving refined parquet.
+    """
+
+    @staticmethod
+    def run(df: pd.DataFrame) -> pd.DataFrame:
+        # Normalize brands
+        if "product_store" in df.columns:
+            df["product_store"] = df["product_store"].fillna("Unknown Brand").str.strip().str.title()
+            brand_map = {"Loreal Paris": "L'Oreal", "LOREAL": "L'Oreal"}
+            df["product_store"] = df["product_store"].replace(brand_map)
+
+        # Verified ratio
+        if "verified_purchases" in df.columns and "review_count" in df.columns:
+            df["verified_ratio"] = (
+                df["verified_purchases"].astype(float) / df["review_count"].replace(0, np.nan)
+            ).clip(0, 1).fillna(0)
+
+        # Helpful votes
+        if "helpful_votes" in df.columns:
+            df["helpful_votes"] = pd.to_numeric(df["helpful_votes"], errors="coerce").fillna(0)
+            cap = df["helpful_votes"].quantile(0.99)
+            df["helpful_votes"] = df["helpful_votes"].clip(upper=cap)
+
+        # Confidence score baseline
+        if "review_count" in df.columns and "avg_rating" in df.columns:
+            df["confidence_score"] = np.log1p(df["review_count"]) * df["avg_rating"]
+            df["confidence_score"] = df["confidence_score"].clip(0, 5)
+
+        # Product price: keep numeric, add flag
+        if "product_price" in df.columns:
+            df["product_price"] = pd.to_numeric(df["product_price"], errors="coerce")
+            df["price_unavailable"] = df["product_price"].isna()
+            df["product_price"] = df["product_price"].fillna(0)
+
+        # Low-volume flag: mark products with <5 reviews
+        if "review_count" in df.columns:
+            df["low_volume_flag"] = df["review_count"] < 5
+
+        # Round ratios for readability
+        if "recent_review_ratio" in df.columns:
+            df["recent_review_ratio"] = df["recent_review_ratio"].round(3)
+        if "review_velocity" in df.columns:
+            df["review_velocity"] = df["review_velocity"].round(3)
+
+        return df
+
 
 
 class DataIntegrationUtils:
