@@ -68,3 +68,38 @@ def add_confidence_score(df: pd.DataFrame) -> pd.DataFrame:
     df["confidence_score"] = df["confidence_score"].clip(lower=0, upper=5)
 
     return df
+
+def add_reliability_score(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute a reliability score based on confidence and credibility features.
+    Applies penalties and a floor for single-review products.
+    """
+    if "confidence_score" not in df.columns:
+        df["reliability_score"] = 0
+        return df
+
+    reliability = df["confidence_score"].copy()
+
+    # Penalize repeat reviewers
+    if "repeat_reviewer_ratio" in df.columns:
+        reliability *= (1 - df["repeat_reviewer_ratio"].clip(0, 1))
+
+    # Penalize helpful vote outliers
+    if "helpful_outlier" in df.columns:
+        reliability *= (~df["helpful_outlier"]).astype(int)
+
+    # Penalize rating outliers
+    if "rating_outlier" in df.columns:
+        reliability *= (~df["rating_outlier"]).astype(int)
+
+    # Penalize very low unique user counts
+    if "unique_users" in df.columns:
+        reliability *= (df["unique_users"] >= 3).astype(int)
+
+    # Apply a floor for single-review products
+    if "review_count" in df.columns:
+        single_mask = df["review_count"] == 1
+        reliability[single_mask] = df.loc[single_mask, "confidence_score"] * 0.25
+
+    df["reliability_score"] = reliability.clip(0, 5)
+    return df
