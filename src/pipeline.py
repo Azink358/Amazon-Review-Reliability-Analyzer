@@ -4,12 +4,12 @@ import time
 from ingestion.load_data import DataIngestion
 from cleaning.clean_data import ReviewCleaning, MetaCleaning, DataIntegrationUtils, RefinementPipeline
 from reliability.features.quantitative import QuantFeatures
-from reliability.scoring import add_confidence_score
+from reliability.scoring import add_confidence_score,add_reliability_score
 
 
 class CleaningPipeline:
     """
-    Stage 1: Ingest raw review + meta files, clean, and save processed parquet.
+    Stage 1: Ingest raw review + meta files, clean, refine, and save processed parquet.
     """
 
     @staticmethod
@@ -23,8 +23,7 @@ class CleaningPipeline:
 
         # --- Meta cleaning ---
         df_meta = MetaCleaning.drop_duplicates(df_meta, subset=["parent_asin"])
-        # Apply product title cleaning
-        df_meta= MetaCleaning.clean_product_titles(df_meta)
+        df_meta = MetaCleaning.clean_product_titles(df_meta)
         df_meta = MetaCleaning.fill_na(df_meta, fill_map={"product_images": [], "product_features": []})
         df_meta = MetaCleaning.ensure_schema(df_meta)
 
@@ -32,13 +31,16 @@ class CleaningPipeline:
         reviews_clean, meta_clean = DataIntegrationUtils.prepare_for_merge(df_reviews, df_meta)
         df_merged = reviews_clean.merge(meta_clean, on="parent_asin", how="inner")
 
+        # --- Refinements ---
+        df_refined = RefinementPipeline.run(df_merged)
+
         print(f"⏱ CleaningPipeline finished in {time.time() - start:.2f} seconds")
-        return df_merged
+        return df_refined
 
 
 class ReliabilityPipeline:
     """
-    Stage 2: Load processed parquet, compute quantitative features + confidence scores.
+    Stage 2: Load processed parquet, compute quantitative features + scoring.
     """
 
     @staticmethod
@@ -52,7 +54,8 @@ class ReliabilityPipeline:
         # Confidence scoring
         scoring_start = time.time()
         df = add_confidence_score(df)
-        print(f"⏱ Confidence scoring finished in {time.time() - scoring_start:.2f} seconds")
+        df = add_reliability_score(df)
+        print(f"⏱ Scoring finished in {time.time() - scoring_start:.2f} seconds")
 
         # Drop intermediate arrays if any slipped through
         drop_cols = [c for c in df.columns if c.endswith("_array")]
@@ -72,11 +75,10 @@ if __name__ == "__main__":
     df_reviews_raw, df_meta_raw = DataIngestion.load_review_meta_pair(data_dir, review_file, meta_file)
     print(f"⏱ Data loading finished in {time.time() - load_start:.2f} seconds")
 
-    df_processed = CleaningPipeline.run(df_reviews_raw, df_meta_raw)
-    df_refined = RefinementPipeline.run(df_processed)
+    df_cleaned = CleaningPipeline.run(df_reviews_raw, df_meta_raw)
 
     processed_path = "data/processed/all_beauty_cleaned.parquet"
-    df_refined.to_parquet(processed_path, index=False)
+    df_cleaned.to_parquet(processed_path, index=False)
     print(f"✅ Saved processed parquet to {processed_path}")
 
     # --- Stage 2: Feature engineering + scoring ---
